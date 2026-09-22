@@ -6,6 +6,9 @@
 <meta name="theme-color" content="#070b18">
 <meta name="description" content="Campo nocturno en 3D con flores amarillas, luciérnagas y luna.">
 <title>Campo Nocturno</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@1,9..144,300&display=swap">
 <style>
   *{box-sizing:border-box}
   html,body{height:100%;margin:0;background:#070b18;overscroll-behavior:none}
@@ -17,17 +20,37 @@
   #scene{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
   #scene.dragging{cursor:grabbing}
 
+  .line{
+    position:fixed;left:0;right:0;bottom:calc(5.5vh + env(safe-area-inset-bottom,0px));
+    margin:0;padding:0 24px;text-align:center;pointer-events:none;
+    font-family:"Fraunces",Georgia,"Times New Roman",serif;
+    font-style:italic;font-weight:300;
+    font-size:clamp(21px,5.2vw,40px);line-height:1.2;letter-spacing:.015em;
+    color:#f7ead0;
+    text-shadow:0 0 30px rgba(255,214,150,.4), 0 2px 20px rgba(4,8,18,.9);
+    opacity:0;animation:rise 2.6s 1.1s ease-out forwards;
+  }
+  @keyframes rise{
+    from{opacity:0;transform:translateY(10px)}
+    to{opacity:1;transform:none}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .line{opacity:1;animation:none}
+  }
+
   .fallback{
     position:fixed;inset:0;display:none;place-items:center;padding:28px;
     text-align:center;font-size:15px;line-height:1.6;color:#cfd8ee;
   }
   body.nowebgl .fallback{display:grid}
-  body.nowebgl #scene{display:none}
+  body.nowebgl #scene,body.nowebgl .line{display:none}
 </style>
 </head>
 <body>
 <canvas id="scene" aria-label="Campo nocturno en 3D con flores amarillas, luciérnagas y luna"></canvas>
 <audio id="song" src="Zamba%20Surreal.mp3" loop preload="auto"></audio>
+
+<p class="line">Mi Linda Cinthy&hellip;</p>
 
 <div class="fallback">
   <p>Tu navegador no pudo iniciar WebGL, así que el campo no se puede dibujar aquí.<br>

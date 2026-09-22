@@ -1,8 +1,10 @@
 # Jardín amarillo — campo nocturno en 3D
 
-Un campo de flores amarillas bajo la luna, en 3D y con cámara libre. Noche cerrada, luciérnagas parpadeando entre el pasto, la luna con su halo de luz y nubes opacas rondando el cielo.
+Un campo de flores amarillas bajo la luna, en 3D y con cámara libre. Noche cerrada, luciérnagas parpadeando entre el pasto, la luna con su halo de luz, nubes opacas rondando el cielo y tres cordilleras recortadas en el horizonte.
 
-La página no muestra absolutamente nada más que el campo: ni texto, ni botones, ni marca de agua.
+Suena `Zamba Surreal.mp3` en bucle, y **a los 30 segundos de que empieza la música arrancan los fuegos artificiales**.
+
+Lo único sobreimpreso es una línea: *Mi Linda Cinthy…*, que aparece con un fundido al cargar. Nada de botones ni interfaz.
 
 **Cinco especies**, generadas proceduralmente y mezcladas al azar:
 
@@ -59,12 +61,18 @@ Tras unos segundos sin tocar nada, la cámara vuelve a girar sola muy lentamente
 - **Luciérnagas**: `Points` con blending aditivo; cada partícula calcula su órbita y su parpadeo en el vertex shader a partir de atributos propios (amplitud, frecuencia, fase). Cero trabajo por frame en CPU.
 - **Luna y nubes**: billboards con texturas generadas en un `<canvas>` al vuelo (degradados radiales, más unos mares suaves en la luna). Las nubes orbitan la escena y se orientan a la cámara, así que a veces cruzan por delante de la luna.
 - **Mobile first**: menos densidad y `pixelRatio` limitado a 1.6 en pantallas pequeñas, encuadre inicial distinto en vertical, gestos de arrastre y pellizco, `touch-action: none` y respeto por `env(safe-area-inset-*)`.
+- **Cordilleras**: tres anillos de silueta a 206, 330 y 470 unidades. El perfil sale de cinco senoidales sumadas sobre el ángulo y elevado a una potencia, que es lo que afila los picos en vez de dejar lomas. La base de cada anillo se funde con el color de la niebla —exactamente el color al que se desvanece el suelo a esa distancia—, así que no hay costura en el horizonte. Ninguna pasa de ~10° de elevación, para que la luna quede siempre por encima.
+- **La canción y los fuegos**: los navegadores no dejan sonar audio sin un gesto del usuario, así que la página intenta reproducir al cargar y, si la rechazan, vuelve a intentarlo con el primer toque, clic o tecla. El cronómetro de 30 s arranca cuando la música *realmente* empieza; si nunca la dejan sonar, a los 12 s arranca igual para que el cielo no se quede vacío.
+- **Fuegos artificiales**: un único pool plano de 2 600 partículas. Tipo 1 es un cohete subiendo, tipo 2 una chispa; que el cohete explote es simplemente que se le acabe la vida. Salen en el azimut hacia donde mira la cámara ±65°, así que siempre se ven.
 - Si WebGL no arranca, la página muestra un mensaje en lugar de un lienzo negro. `prefers-reduced-motion` congela viento, nubes y giro automático.
 
 ## Estructura
 
 ```
 Jardin-amarillo/
-├── index.html   # todo: markup, estilos, escena y shaders
+├── index.html          # todo: markup, estilos, escena y shaders
+├── Zamba Surreal.mp3   # la canción; el <audio> la busca por este nombre exacto
 └── README.md
 ```
+
+Si cambias el nombre del mp3, hay que cambiar también el `src` del `<audio>` en `index.html` (va URL-encodeado: `Zamba%20Surreal.mp3`).
