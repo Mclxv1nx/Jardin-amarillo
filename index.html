@@ -27,6 +27,7 @@
 </head>
 <body>
 <canvas id="scene" aria-label="Campo nocturno en 3D con flores amarillas, luciérnagas y luna"></canvas>
+<audio id="song" src="Zamba%20Surreal.mp3" loop preload="auto"></audio>
 
 <div class="fallback">
   <p>Tu navegador no pudo iniciar WebGL, así que el campo no se puede dibujar aquí.<br>
@@ -76,7 +77,7 @@
     + Math.sin((x + z) * 0.022) * 0.95
     - 0.25;
 
-  const MOON_DIR = new THREE.Vector3(-0.405, 0.131, -0.905).normalize();
+  const MOON_DIR = new THREE.Vector3(-0.3995, 0.2079, -0.8928).normalize();
   const FOG_DENSITY = 0.028;
 
   const commonUniforms = () => ({
@@ -252,6 +253,78 @@
     }
   })();
 
+
+  /* --------------------------------------------- mountains on the rim
+     Two silhouetted ranges ringing the field, so the far edge reads as
+     a skyline instead of a flat cut. Their bases melt into the fog
+     colour, which is exactly what the ground fades to at that distance. */
+  function buildRange(radius, minH, maxH, segs, jag) {
+    const amp = [], frq = [], phs = [];
+    for (let k = 0; k < 5; k++) {
+      amp.push(1 / (k + 1));
+      frq.push(2 + k * 3 + ((Math.random() * 4) | 0));
+      phs.push(Math.random() * TAU);
+    }
+    const pos = new Float32Array(segs * 2 * 3);
+    const dir = new Float32Array(segs * 2 * 2);
+    const idx = new Uint32Array(segs * 6);
+    for (let i = 0; i < segs; i++) {
+      const th = i / segs * TAU, cx = Math.cos(th), cz = Math.sin(th);
+      let v = 0, s = 0;
+      for (let k = 0; k < 5; k++) { v += amp[k] * Math.sin(th * frq[k] + phs[k]); s += amp[k]; }
+      v = v / s * 0.5 + 0.5;
+      const h = minH + (maxH - minH) * Math.pow(v, jag);
+      const o = i * 6;
+      pos[o] = cx * radius; pos[o + 1] = h;   pos[o + 2] = cz * radius;
+      pos[o + 3] = cx * radius; pos[o + 4] = -70; pos[o + 5] = cz * radius;
+      const d = i * 4;
+      dir[d] = cx; dir[d + 1] = cz; dir[d + 2] = cx; dir[d + 3] = cz;
+      const a = i * 2, b = a + 1, c = ((i + 1) % segs) * 2, e = c + 1, q = i * 6;
+      idx[q] = a; idx[q + 1] = b; idx[q + 2] = c;
+      idx[q + 3] = b; idx[q + 4] = e; idx[q + 5] = c;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('aDir', new THREE.BufferAttribute(dir, 2));
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    g.computeBoundingSphere();
+    return g;
+  }
+
+  function rangeMat(top, base, haze, fade) {
+    const m = new THREE.Vector2(MOON_DIR.x, MOON_DIR.z).normalize().negate();
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        uTop:  { value: new THREE.Color(top) },
+        uBase: { value: new THREE.Color(base) },
+        uFog:  { value: FOGCOL.clone() },
+        uHaze: { value: haze },
+        uMoon: { value: m },
+        uFade: { value: new THREE.Vector2(fade[0], fade[1]) }
+      },
+      vertexShader: `attribute vec2 aDir; varying float vY; varying vec2 vD;
+        void main(){ vY = position.y; vD = aDir;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: `uniform vec3 uTop, uBase, uFog; uniform float uHaze;
+        uniform vec2 uMoon, uFade; varying float vY; varying vec2 vD;
+        void main(){
+          float k = smoothstep(uFade.x, uFade.y, vY);
+          vec3 c = mix(uBase, uTop, k);
+          float lit = max(dot(normalize(vD), uMoon), 0.0);
+          c += vec3(0.13, 0.17, 0.27) * pow(lit, 2.6) * k;
+          c = mix(uFog, c, uHaze * (0.32 + 0.68 * k));
+          gl_FragColor = vec4(c, 1.0);
+        }`
+    });
+  }
+
+  scene.add(new THREE.Mesh(buildRange(470, 22, 78, 288, 2.1),
+                           rangeMat('#4a6590', '#2c4268', 0.34, [-12, 42])));
+  scene.add(new THREE.Mesh(buildRange(330, 14, 56, 272, 2.2),
+                           rangeMat('#35507a', '#1f3358', 0.56, [-10, 30])));
+  scene.add(new THREE.Mesh(buildRange(206, 7, 33, 240, 2.4),
+                           rangeMat('#21365a', '#14233d', 0.78, [-8, 19])));
+
   /* ------------------------------------------------------- the ground */
   const groundMat = new THREE.ShaderMaterial({
     uniforms: Object.assign(commonUniforms(), {
@@ -282,7 +355,7 @@
       }`
   });
 
-  const groundGeo = new THREE.PlaneGeometry(200, 200, 110, 110);
+  const groundGeo = new THREE.PlaneGeometry(900, 900, 150, 150);
   groundGeo.rotateX(-Math.PI / 2);
   {
     const p = groundGeo.attributes.position;
@@ -764,6 +837,153 @@
   }
   sow();
 
+
+  /* ------------------------------------------------------- fireworks
+     One flat particle pool: slot 1 = a rising shell, slot 2 = a spark
+     from a burst. The shell turning into sparks is just the shell's
+     life running out. */
+  const FW_MAX = 2600;
+  const FW = {
+    pos:  new Float32Array(FW_MAX * 3),
+    col:  new Float32Array(FW_MAX * 3),
+    vel:  new Float32Array(FW_MAX * 3),
+    size: new Float32Array(FW_MAX),
+    alpha:new Float32Array(FW_MAX),
+    life: new Float32Array(FW_MAX),
+    span: new Float32Array(FW_MAX),
+    kind: new Uint8Array(FW_MAX)
+  };
+  let fwCursor = 0, fwNext = 0, fwOn = false;
+
+  const FW_COLORS = [
+    [1.00, 0.84, 0.32], [1.00, 0.55, 0.30], [1.00, 0.42, 0.55],
+    [0.60, 0.85, 1.00], [0.68, 1.00, 0.66], [1.00, 0.96, 0.88],
+    [0.85, 0.62, 1.00]
+  ];
+
+  function fwAlloc() {
+    for (let n = 0; n < FW_MAX; n++) {
+      const i = (fwCursor + n) % FW_MAX;
+      if (!FW.kind[i]) { fwCursor = (i + 1) % FW_MAX; return i; }
+    }
+    return -1;
+  }
+
+  function fwLaunch() {
+    const i = fwAlloc();
+    if (i < 0) return;
+    const viewAz = cam.az + Math.PI;           // where the camera is looking
+    const az = viewAz + rand(-1.15, 1.15);
+    const R = rand(80, 170);
+    const rise = rand(1.6, 2.4), peak = rand(16, 40);
+    const o = i * 3;
+    FW.pos[o] = Math.sin(az) * R; FW.pos[o + 1] = rand(-2, 4); FW.pos[o + 2] = Math.cos(az) * R;
+    FW.vel[o] = rand(-2, 2); FW.vel[o + 1] = peak / rise + 0.5 * 9 * rise; FW.vel[o + 2] = rand(-2, 2);
+    const c = FW_COLORS[(Math.random() * FW_COLORS.length) | 0];
+    FW.col[o] = c[0]; FW.col[o + 1] = c[1]; FW.col[o + 2] = c[2];
+    FW.size[i] = 2.6; FW.alpha[i] = 1; FW.life[i] = 0; FW.span[i] = rise; FW.kind[i] = 1;
+  }
+
+  function fwBurst(i) {
+    const o = i * 3;
+    const x = FW.pos[o], y = FW.pos[o + 1], z = FW.pos[o + 2];
+    const r = FW.col[o], g = FW.col[o + 1], b = FW.col[o + 2];
+    const n = 90 + ((Math.random() * 110) | 0);
+    const speed = rand(13, 24);
+    const ring = Math.random() < 0.3;          // some shells open as a flat disc
+    for (let k = 0; k < n; k++) {
+      const j = fwAlloc();
+      if (j < 0) return;
+      const u = Math.random() * 2 - 1, th = Math.random() * TAU, s = Math.sqrt(1 - u * u);
+      let vx = Math.cos(th) * s, vy = u, vz = Math.sin(th) * s;
+      if (ring) vy *= 0.16;
+      const sp = speed * (0.72 + Math.random() * 0.4);
+      const p = j * 3;
+      FW.pos[p] = x; FW.pos[p + 1] = y; FW.pos[p + 2] = z;
+      FW.vel[p] = vx * sp; FW.vel[p + 1] = vy * sp; FW.vel[p + 2] = vz * sp;
+      const white = Math.random() < 0.16;
+      FW.col[p]     = white ? 1 : r;
+      FW.col[p + 1] = white ? 0.97 : g;
+      FW.col[p + 2] = white ? 0.9 : b;
+      FW.size[j] = rand(2.0, 4.2);
+      FW.alpha[j] = 1; FW.life[j] = 0; FW.span[j] = rand(1.5, 2.7); FW.kind[j] = 2;
+    }
+  }
+
+  function fwUpdate(dt, t) {
+    if (!fwOn) return;
+    fwNext -= dt;
+    if (fwNext <= 0) { fwLaunch(); if (Math.random() < 0.45) fwLaunch(); fwNext = rand(0.7, 2.0); }
+    for (let i = 0; i < FW_MAX; i++) {
+      const k = FW.kind[i];
+      if (!k) continue;
+      FW.life[i] += dt;
+      const o = i * 3;
+      FW.vel[o + 1] -= (k === 1 ? 9 : 6.2) * dt;
+      if (k === 2) { const d = 1 - 0.72 * dt; FW.vel[o] *= d; FW.vel[o + 1] *= d; FW.vel[o + 2] *= d; }
+      FW.pos[o] += FW.vel[o] * dt;
+      FW.pos[o + 1] += FW.vel[o + 1] * dt;
+      FW.pos[o + 2] += FW.vel[o + 2] * dt;
+      const f = FW.life[i] / FW.span[i];
+      if (f >= 1) { if (k === 1) fwBurst(i); FW.kind[i] = 0; FW.alpha[i] = 0; continue; }
+      FW.alpha[i] = k === 1
+        ? 0.75 + 0.25 * Math.sin(t * 40 + i)
+        : Math.pow(1 - f, 1.4) * (0.72 + 0.28 * Math.sin(t * 24 + i * 1.7));
+    }
+    fwGeo.attributes.position.needsUpdate = true;
+    fwGeo.attributes.aCol.needsUpdate = true;
+    fwGeo.attributes.aSize.needsUpdate = true;
+    fwGeo.attributes.aAlpha.needsUpdate = true;
+  }
+
+  const fwGeo = new THREE.BufferGeometry();
+  fwGeo.setAttribute('position', new THREE.BufferAttribute(FW.pos, 3));
+  fwGeo.setAttribute('aCol',   new THREE.BufferAttribute(FW.col, 3));
+  fwGeo.setAttribute('aSize',  new THREE.BufferAttribute(FW.size, 1));
+  fwGeo.setAttribute('aAlpha', new THREE.BufferAttribute(FW.alpha, 1));
+  fwGeo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e4);
+  const fwMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uPR: { value: renderer.getPixelRatio() } },
+    vertexShader: `attribute vec3 aCol; attribute float aSize; attribute float aAlpha;
+      uniform float uPR; varying vec3 vC; varying float vA;
+      void main(){
+        vC = aCol; vA = aAlpha;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = aAlpha < 0.004 ? 0.0 : aSize * uPR * (760.0 / max(0.001, -mv.z));
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `varying vec3 vC; varying float vA;
+      void main(){
+        float r = length(gl_PointCoord - 0.5) * 2.0;
+        if (r > 1.0) discard;
+        float core = pow(smoothstep(1.0, 0.0, r * 2.2), 2.0);
+        float halo = pow(smoothstep(1.0, 0.0, r), 2.4);
+        gl_FragColor = vec4(vC * (core + halo * 0.75) * vA, (core + halo * 0.5) * vA);
+      }`
+  });
+  const fwPoints = new THREE.Points(fwGeo, fwMat);
+  fwPoints.frustumCulled = false;
+  fwPoints.renderOrder = 6;
+  scene.add(fwPoints);
+
+  /* ------------------------------------------------- song, then the show */
+  const song = document.getElementById('song');
+  let started = -1, fading = 0;
+
+  function startSong() {
+    if (!song || started > 0) return;
+    const p = song.play();
+    if (p && p.then) p.then(() => { started = performance.now(); }).catch(() => {});
+    else started = performance.now();
+  }
+  if (song) {
+    song.volume = 0;
+    startSong();
+    for (const ev of ['pointerdown', 'keydown', 'touchstart'])
+      addEventListener(ev, startSong, { passive: true });
+  }
+
   /* ------------------------------------------------------------ camera */
   const portrait = innerHeight > innerWidth;
   // aim a little above the field in portrait, where the frame is tall and the moon rides high
@@ -848,6 +1068,7 @@
     renderer.setSize(w, h, false);
     const pr = renderer.getPixelRatio();
     flyMat.uniforms.uPR.value = pr;
+    fwMat.uniforms.uPR.value = pr;
     glowMat.uniforms.uPR.value = pr;
     scene.userData.stars.uniforms.uPR.value = pr;
   }
@@ -862,6 +1083,18 @@
 
     if (now - lastInput > 3500 && !reduced) cam.az_ += dt * 0.035;
     placeCamera();
+
+    // the song fades up when it is allowed to play; if the browser never
+    // lets it, the show still starts so the sky is not left empty
+    if (song) {
+      if (started < 0 && now > 12000) started = now;
+      else if (started > 0 && fading < 1) {
+        fading = Math.min(1, fading + dt / 2.5);
+        try { song.volume = fading * 0.85; } catch (e) {}
+      }
+    } else if (started < 0) started = now;
+    if (!fwOn && started > 0 && now - started > 30000) fwOn = true;
+    fwUpdate(dt, clock);
 
     grassMat.uniforms.uTime.value = clock;
     flowerMat.uniforms.uTime.value = clock;

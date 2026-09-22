@@ -1,7 +1,5 @@
 # Jardín amarillo — campo nocturno en 3D
 
-> Para Camilita, la Ingeniera más talentosa y libre ❤
-
 Un campo de flores amarillas bajo la luna, en 3D y con cámara libre. Noche cerrada, luciérnagas parpadeando entre el pasto, la luna con su halo de luz y nubes opacas rondando el cielo.
 
 La página no muestra absolutamente nada más que el campo: ni texto, ni botones, ni marca de agua.
